@@ -1,9 +1,41 @@
-FROM nvidia/cuda:13.1.2-runtime-ubuntu24.04
+# syntax=docker/dockerfile:1
 
-ENV DEBIAN_FRONTEND=noninteractive
+FROM nvidia/cuda:13.1.2-devel-ubuntu24.04 AS build
+
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get install --yes --no-install-recommends \
+        cmake \
+        libavcodec-dev \
+        libavformat-dev \
+        libavutil-dev \
+        libcurl4-openssl-dev \
+        libswscale-dev \
+        ninja-build \
+        pkg-config \
+        ca-certificates \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+COPY . .
+
+RUN cmake -S . -B /build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DNINFER_BUILD_APPS=ON \
+    -DBUILD_TESTING=OFF \
+    -DNINFER_BUILD_BENCHMARKS=OFF \
+    && cmake --build /build --parallel --target ninfer ninfer-serve
+
+
+FROM nvidia/cuda:13.1.2-runtime-ubuntu24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
         ca-certificates \
         curl \
         wget \
@@ -14,11 +46,16 @@ RUN apt-get update \
         libswscale7 \
     && rm -rf /var/lib/apt/lists/*
 
-# NInfer sera fourni par le dépôt au moment du build.
-COPY ninfer-serve /usr/local/bin/ninfer-serve
-COPY ninfer /usr/local/bin/ninfer
+# IMPORTANT:
+# CUDA runtime images contain forward-compatibility libraries.
+# They cause CUDA failures on GeForce cards such as the RTX 3090.
+RUN rm -rf \
+    /usr/local/cuda-13.1/compat \
+    /usr/local/cuda-13/compat \
+    /usr/local/cuda/compat
 
-RUN chmod +x /usr/local/bin/ninfer-serve /usr/local/bin/ninfer
+COPY --from=build /build/apps/ninfer /usr/local/bin/ninfer
+COPY --from=build /build/apps/ninfer-serve /usr/local/bin/ninfer-serve
 
 RUN mkdir -p /workspace/models
 
