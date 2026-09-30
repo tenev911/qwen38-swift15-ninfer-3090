@@ -2,53 +2,58 @@
 
 FROM nvidia/cuda:13.1.2-devel-ubuntu24.04 AS build
 
-ARG DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends \
-        cmake \
-        libavcodec-dev \
-        libavformat-dev \
-        libavutil-dev \
-        libcurl4-openssl-dev \
-        libswscale-dev \
-        ninja-build \
-        pkg-config \
-        ca-certificates \
-        wget \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    cmake \
+    ninja-build \
+    pkg-config \
+    ca-certificates \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libcurl4-openssl-dev \
+    libswscale-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 
-COPY . .
+# NInfer-3090 source
+RUN git clone --depth 1 \
+    https://github.com/Don-Chad/ninfer-3090.git \
+    /src/ninfer-3090
+
+WORKDIR /src/ninfer-3090
 
 RUN cmake -S . -B /build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DNINFER_BUILD_APPS=ON \
     -DBUILD_TESTING=OFF \
-    -DNINFER_BUILD_BENCHMARKS=OFF \
-    && cmake --build /build --parallel --target ninfer ninfer-serve
+    && cmake --build /build --parallel
 
+
+# ============================================================
+# Runtime
+# ============================================================
 
 FROM nvidia/cuda:13.1.2-runtime-ubuntu24.04
 
-ARG DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends \
-        ca-certificates \
-        curl \
-        wget \
-        libavcodec60 \
-        libavformat60 \
-        libavutil58 \
-        libcurl4t64 \
-        libswscale7 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    libavcodec60 \
+    libavformat60 \
+    libavutil58 \
+    libcurl4t64 \
+    libswscale7 \
     && rm -rf /var/lib/apt/lists/*
 
-# IMPORTANT:
-# CUDA runtime images contain forward-compatibility libraries.
-# They cause CUDA failures on GeForce cards such as the RTX 3090.
+# Remove CUDA compatibility libraries.
+# They can cause problems with consumer NVIDIA GPUs such as
+# the RTX 3090 when the host driver is newer.
 RUN rm -rf \
     /usr/local/cuda-13.1/compat \
     /usr/local/cuda-13/compat \
